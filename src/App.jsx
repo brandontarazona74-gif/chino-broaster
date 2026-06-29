@@ -204,9 +204,12 @@ select.inp{appearance:none;cursor:pointer;}
 
 /* ── admin panel ── */
 .admin-wrap{width:390px;background:${T.bg};border-radius:44px;overflow:hidden;box-shadow:0 0 0 9px #1a1a1a,0 0 0 11px #2a2a2a,0 40px 90px rgba(0,0,0,.95);display:flex;flex-direction:column;min-height:844px;}
+@media (max-width:480px){
+  .admin-wrap{width:100vw!important;min-height:100dvh!important;border-radius:0!important;box-shadow:none!important;}
+}
 .admin-header{background:${T.surface};padding:18px 20px 14px;border-bottom:1px solid ${T.border};flex-shrink:0;}
-.admin-tabs{display:flex;gap:4px;background:${T.card};border-radius:12px;padding:4px;}
-.atab{flex:1;padding:8px 4px;border-radius:9px;border:none;font-family:'Poppins',sans-serif;font-size:11px;font-weight:700;cursor:pointer;transition:.15s;background:transparent;color:${T.grey};}
+.admin-tabs{display:flex;gap:3px;background:${T.card};border-radius:12px;padding:4px;}
+.atab{flex:1;padding:7px 2px;border-radius:9px;border:none;font-family:'Poppins',sans-serif;font-size:9px;font-weight:700;cursor:pointer;transition:.15s;background:transparent;color:${T.grey};}
 .atab.act{background:${T.red};color:#fff;}
 
 /* ── order card ── */
@@ -230,12 +233,28 @@ select.inp{appearance:none;cursor:pointer;}
 .qr-grid{display:grid;grid-template-columns:repeat(11,1fr);gap:1.5px;padding:12px;}
 `;
 
-// ─── QR COMPONENT ─────────────────────────────────────────────────────────────
-const QR_SEED = [1,1,1,1,1,1,1,0,1,0,1,1,0,0,0,1,0,1,0,1,1,0,1,0,0,0,1,0,1,0,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,1,0,1,1,1,0,1,1,0,0,1,1,0,1,0,1,0,1,0,1,1,0,0,1,1,1,0,0,1,0,1,0,1,1,0,1,0,0,0,1,0,1,1,0,1,1,1,0,1,0,1,0,1,0,1,0,0,0,1,1,0,1,0,1,0,1,0,0,0,1,0,0,1,1,1];
-function QRBlock({ size = 160 }) {
+// ─── CÓDIGO QR NUMÉRICO (6 dígitos por sesión por usuario) ───────────────────
+function generateCode(celular) {
+  // código determinista por celular + día de hoy → 6 dígitos
+  const seed = celular.replace(/\D/g,"") + new Date().toDateString();
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash |= 0; }
+  return String(Math.abs(hash) % 900000 + 100000);
+}
+
+function CodeDisplay({ user }) {
+  const code = generateCode(user.celular);
+  const digits = code.split("");
   return (
-    <div style={{ width: size, height: size, background: "#fff", borderRadius: 12, display: "grid", gridTemplateColumns: "repeat(11,1fr)", gap: 1.5, padding: 12 }}>
-      {QR_SEED.map((c, i) => <div key={i} style={{ background: c ? "#0A0A0A" : "transparent", borderRadius: 1 }} />)}
+    <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:8 }}>
+      <div style={{ display:"flex",gap:6 }}>
+        {digits.map((d,i) => (
+          <div key={i} style={{ width:40,height:52,background:"#fff",borderRadius:10,display:"flex",alignItems:"center",justifyContent:"center",fontSize:26,fontWeight:900,color:"#0A0A0A",boxShadow:"0 2px 8px rgba(0,0,0,.2)" }}>{d}</div>
+        ))}
+      </div>
+      <div style={{ background:T.red,borderRadius:8,padding:"3px 14px",marginTop:4 }}>
+        <span style={{ color:"#fff",fontSize:10,fontWeight:800,letterSpacing:1 }}>CHINO BROASTER</span>
+      </div>
     </div>
   );
 }
@@ -303,36 +322,69 @@ function SplashScreen({ onLogin, onRegister }) {
 
 // ── REGISTER ─────────────────────────────────────────────────────────────────
 function RegisterScreen({ onBack, onSuccess }) {
-  const [f, setF] = useState({ nombre: "", celular: "", fecha: "" });
+  const [f, setF] = useState({ nombre:"", celular:"", fecha:"", contrasena:"", confirmar:"", referido:"" });
+  const [error, setError] = useState("");
+
+  const doRegister = () => {
+    if (!f.nombre || !f.celular || !f.contrasena || !f.fecha) { setError("Completa todos los campos"); return; }
+    if (f.contrasena !== f.confirmar) { setError("Las contraseñas no coinciden"); return; }
+    if (f.contrasena.length < 6) { setError("La contraseña debe tener al menos 6 caracteres"); return; }
+    const cel = f.celular.replace(/\s/g,"");
+    const users = getUsers();
+    if (users.find(u => u.celular.replace(/\s/g,"") === cel)) { setError("Este número ya está registrado"); return; }
+    const activeCode = (() => { try { const c=localStorage.getItem("cb_refcode"); const a=localStorage.getItem("cb_refactive"); return a!=="false"&&c?c:"POLLO"; } catch{return "POLLO";} })();
+    const refIsActive = (() => { try { return localStorage.getItem("cb_refactive")!=="false"; } catch{return true;} })();
+    const newUser = { nombre:f.nombre, celular:cel, contrasena:f.contrasena, nacimiento:f.fecha, referido:f.referido||"", pts:(refIsActive && f.referido.toUpperCase()===activeCode)?50:0, isOwner:false };
+    users.push(newUser);
+    saveUsers(users);
+    setError("");
+    onSuccess(newUser);
+  };
+
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "10px 18px", display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <button className="btn-ghost" onClick={onBack} style={{ color: T.white, fontSize: 22 }}>←</button>
-        <span style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>Crear Cuenta</span>
+    <div style={{ flex:1,display:"flex",flexDirection:"column" }}>
+      <div style={{ padding:"10px 18px",display:"flex",alignItems:"center",gap:10,borderBottom:`1px solid ${T.border}`,flexShrink:0 }}>
+        <button className="btn-ghost" onClick={onBack} style={{ color:T.white,fontSize:22 }}>←</button>
+        <span style={{ color:T.white,fontWeight:700,fontSize:16 }}>Crear Cuenta</span>
       </div>
-      <div className="scroll" style={{ padding: "20px 20px" }}>
-        <div style={{ textAlign: "center", marginBottom: 24 }}>
-          <div style={{ fontSize: 44 }}>🎉</div>
-          <div style={{ color: T.white, fontWeight: 700, fontSize: 18, marginTop: 8 }}>¡Únete al Club!</div>
-          <div style={{ color: T.grey, fontSize: 13 }}>Regístrate y empieza a ganar puntos hoy</div>
+      <div className="scroll" style={{ padding:"20px 20px" }}>
+        <div style={{ textAlign:"center",marginBottom:24 }}>
+          <div style={{ fontSize:44 }}>🎉</div>
+          <div style={{ color:T.white,fontWeight:700,fontSize:18,marginTop:8 }}>¡Únete al Club!</div>
+          <div style={{ color:T.grey,fontSize:13 }}>Regístrate y empieza a ganar puntos hoy</div>
         </div>
-        {[["NOMBRE COMPLETO","Tu nombre completo","nombre","text"],["CELULAR","999 999 999","celular","tel"],["FECHA DE CUMPLEAÑOS","DD/MM/AAAA","fecha","text"]].map(([lbl,ph,key,type]) => (
-          <div key={key} style={{ marginBottom: 14 }}>
-            <div style={{ color: T.grey, fontSize: 11, fontWeight: 600, marginBottom: 5 }}>{lbl}</div>
-            <input className="inp" placeholder={ph} type={type} value={f[key]} onChange={e => setF({...f,[key]:e.target.value})} />
-            {key==="fecha" && <div style={{ color: T.grey, fontSize: 11, marginTop: 4 }}>🎂 Te enviamos un regalo especial en tu cumpleaños</div>}
+        {[
+          ["NOMBRE COMPLETO","Tu nombre completo","nombre","text"],
+          ["CELULAR","999 999 999","celular","tel"],
+          ["FECHA DE NACIMIENTO","DD/MM/AAAA","fecha","text"],
+        ].map(([lbl,ph,key,type]) => (
+          <div key={key} style={{ marginBottom:12 }}>
+            <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>{lbl}</div>
+            <input className="inp" placeholder={ph} type={type} value={f[key]} onChange={e=>setF({...f,[key]:e.target.value})} />
+            {key==="fecha" && <div style={{ color:T.grey,fontSize:11,marginTop:4 }}>🎂 Te enviamos un regalo especial en tu cumpleaños</div>}
           </div>
         ))}
-        <div style={{ background: "#0d1f06", border: "1px solid #2d4a0f", borderRadius: 12, padding: "12px 14px", marginBottom: 18, display: "flex", gap: 10, alignItems: "center" }}>
-          <span style={{ fontSize: 20 }}>🎁</span>
-          <div style={{ flex: 1 }}>
-            <div style={{ color: "#7ec850", fontSize: 12, fontWeight: 700 }}>Código de Referido (opcional)</div>
-            <input className="inp" placeholder="Ej: ABC123" style={{ marginTop: 6, padding: "8px 12px", fontSize: 13 }} />
+        <div style={{ marginBottom:12 }}>
+          <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>CONTRASEÑA</div>
+          <input className="inp" placeholder="Mínimo 6 caracteres" type="password" value={f.contrasena} onChange={e=>setF({...f,contrasena:e.target.value})} />
+        </div>
+        <div style={{ marginBottom:14 }}>
+          <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>CONFIRMAR CONTRASEÑA</div>
+          <input className="inp" placeholder="Repite tu contraseña" type="password" value={f.confirmar} onChange={e=>setF({...f,confirmar:e.target.value})} />
+        </div>
+        <div style={{ background:"#0d1f06",border:"1px solid #2d4a0f",borderRadius:12,padding:"12px 14px",marginBottom:16,display:"flex",gap:10,alignItems:"center" }}>
+          <span style={{ fontSize:20 }}>🎁</span>
+          <div style={{ flex:1 }}>
+            <div style={{ color:"#7ec850",fontSize:12,fontWeight:700 }}>Código de Referido (opcional)</div>
+            <input className="inp" placeholder="Ej: POLLO" style={{ marginTop:6,padding:"8px 12px",fontSize:13 }}
+              value={f.referido} onChange={e=>setF({...f,referido:e.target.value})} />
+            <div style={{ color:T.grey,fontSize:11,marginTop:4 }}>Con código válido ganas 50 pts extra al registrarte</div>
           </div>
         </div>
-        <button className="btn-red" onClick={() => f.nombre && f.celular && onSuccess(f)}>CREAR MI CUENTA GRATIS</button>
-        <div style={{ textAlign: "center", color: T.grey, fontSize: 12, marginTop: 14 }}>
-          ¿Ya tienes cuenta? <span style={{ color: T.gold, fontWeight: 600, cursor: "pointer" }} onClick={onBack}>Inicia sesión</span>
+        {error && <div style={{ background:"#2a0a0a",border:`1px solid ${T.red}40`,borderRadius:10,padding:"10px 14px",color:"#F87171",fontSize:13,marginBottom:14 }}>⚠️ {error}</div>}
+        <button className="btn-red" onClick={doRegister}>CREAR MI CUENTA GRATIS</button>
+        <div style={{ textAlign:"center",color:T.grey,fontSize:12,marginTop:14 }}>
+          ¿Ya tienes cuenta? <span style={{ color:T.gold,fontWeight:600,cursor:"pointer" }} onClick={onBack}>Inicia sesión</span>
         </div>
       </div>
     </div>
@@ -550,35 +602,31 @@ function ItemDetail({ item, onBack, onAdd }) {
   );
 }
 
-// ── QR SCREEN ─────────────────────────────────────────────────────────────────
+// ── QR / CÓDIGO DE PAGO ───────────────────────────────────────────────────────
 function QRScreen({ user, onBack }) {
+  const lvl = getLevel(user.pts);
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "10px 18px", display: "flex", alignItems: "center", gap: 10, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <button className="btn-ghost" onClick={onBack} style={{ color: T.white, fontSize: 22 }}>←</button>
-        <span style={{ color: T.white, fontWeight: 700, fontSize: 16 }}>MI CÓDIGO QR</span>
+    <div style={{ flex:1,display:"flex",flexDirection:"column" }}>
+      <div style={{ padding:"10px 18px",display:"flex",alignItems:"center",gap:10,borderBottom:`1px solid ${T.border}`,flexShrink:0 }}>
+        <button className="btn-ghost" onClick={onBack} style={{ color:T.white,fontSize:22 }}>←</button>
+        <span style={{ color:T.white,fontWeight:700,fontSize:16 }}>MI CÓDIGO DE PAGO</span>
       </div>
-      <div className="scroll" style={{ padding: "24px 20px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <div style={{ color: T.grey, fontSize: 13, textAlign: "center", marginBottom: 24 }}>Muestra este código al pagar<br/>para acumular tus puntos</div>
-        <div style={{ background: "#fff", borderRadius: 24, padding: 20, display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-          <QRBlock size={190} />
-          <div style={{ background: T.red, borderRadius: 8, padding: "3px 12px" }}>
-            <span style={{ color: "#fff", fontSize: 10, fontWeight: 800, letterSpacing: 1 }}>CHINO BROASTER</span>
+      <div className="scroll" style={{ padding:"24px 20px",display:"flex",flexDirection:"column",alignItems:"center" }}>
+        <div style={{ color:T.grey,fontSize:13,textAlign:"center",marginBottom:24 }}>Muestra este código al pagar<br/>para acumular tus puntos</div>
+        <div style={{ background:"#fff",borderRadius:24,padding:"28px 20px",display:"flex",flexDirection:"column",alignItems:"center",gap:16,width:"100%" }}>
+          <CodeDisplay user={user}/>
+        </div>
+        <div style={{ textAlign:"center",marginTop:18 }}>
+          <div style={{ color:T.white,fontWeight:700,fontSize:18 }}>{user.nombre}</div>
+          <div style={{ color:T.grey,fontSize:13 }}>{user.celular}</div>
+          <div style={{ display:"inline-flex",alignItems:"center",gap:6,background:`${T.gold}20`,border:`1px solid ${T.gold}`,borderRadius:20,padding:"5px 14px",marginTop:10 }}>
+            <span>{lvl.icon}</span>
+            <span style={{ color:T.gold,fontWeight:700,fontSize:12 }}>Nivel {lvl.name} · {user.pts} pts</span>
           </div>
         </div>
-        <div style={{ textAlign: "center", marginTop: 18 }}>
-          <div style={{ color: T.white, fontWeight: 700, fontSize: 18 }}>{user.nombre}</div>
-          <div style={{ color: T.grey, fontSize: 13 }}>{user.celular}</div>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 6, background: `${T.gold}20`, border: `1px solid ${T.gold}`, borderRadius: 20, padding: "5px 14px", marginTop: 10 }}>
-            <span>{getLevel(user.pts).icon}</span>
-            <span style={{ color: T.gold, fontWeight: 700, fontSize: 12 }}>Nivel {getLevel(user.pts).name} · {user.pts} pts</span>
-          </div>
+        <div style={{ color:T.grey,fontSize:11,marginTop:20,textAlign:"center",background:T.card,borderRadius:12,padding:"10px 16px",border:`1px solid ${T.border}`,width:"100%" }}>
+          🔒 Tu código cambia cada día. Muéstralo al local para registrar tus puntos.
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, width: "100%", marginTop: 28 }}>
-          <button className="btn-outline" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>📤 COMPARTIR QR</button>
-          <button className="btn-gold" style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>🔄 ACTUALIZAR QR</button>
-        </div>
-        <div style={{ color: T.grey, fontSize: 11, marginTop: 20, textAlign: "center" }}>🔒 Código cifrado único — se renueva automáticamente</div>
       </div>
     </div>
   );
@@ -670,111 +718,221 @@ function NivelScreen({ user }) {
 }
 
 // ── PEDIDOS / CHECKOUT ────────────────────────────────────────────────────────
-function PedidosScreen({ cart, user, onUpdate, onPlaceOrder }) {
-  const [pay, setPay] = useState("Yape");
-  const [addr, setAddr] = useState("");
+function PedidosScreen({ cart, user, onUpdate, onPlaceOrder, orders, onUpdateUser }) {
+  const [pay, setPay]     = useState("Yape");
+  const [addr, setAddr]   = useState("");
   const [notes, setNotes] = useState("");
-  const [name, setName] = useState(user.nombre);
+  const [name, setName]   = useState(user.nombre);
+  const [step, setStep]   = useState("form"); // "form"|"waiting"|"confirmed_cash"|"confirmed_pay"
   const total = cart.reduce((s,i)=>s+i.price*i.qty,0);
-  const pts = Math.floor(total);
+  const pts   = Math.floor(total);
 
-  const hist = [
-    { id:"#CB-001",date:"18 May · 8:35 PM",status:"Entregado",total:35.00,pts:35,emoji:"🍔" },
-    { id:"#CB-002",date:"15 May · 7:20 PM",status:"Entregado",total:28.50,pts:28,emoji:"🍗" },
-  ];
+  const myOrders = orders.filter(o => o.celular === user.celular);
+  const lastOrder = myOrders[0];
+
+  // Polling: si el admin confirmó el pago de Yape/Contra entrega
+  const isConfirmed = lastOrder?.payConfirmed && step === "waiting";
+  if (isConfirmed && lastOrder?.pts_credited_to_client !== true) {
+    // acreditar puntos al usuario si no se han acreditado aún
+  }
 
   const doOrder = () => {
     if (cart.length === 0) return;
-    const msg = buildOrderMsg(cart, pay, name, addr, notes);
-    window.open(`https://wa.me/${WA_NUMBER}?text=${msg}`, "_blank");
-    onPlaceOrder();
+    if (pay === "Efectivo") {
+      onPlaceOrder(pay, addr, notes, name, true); // acumula puntos inmediato
+      setStep("confirmed_cash");
+    } else {
+      // Yape o Contra entrega: abre WA, espera confirmación admin
+      const lines = cart.map(i=>`  • ${i.qty}x ${i.name} — S/ ${(i.price*i.qty).toFixed(2)}`).join("\n");
+      const waMsg = encodeURIComponent(
+`🔥 *CHINO BROASTER — NUEVO PEDIDO*
+
+👤 *Cliente:* ${name||user.nombre}
+📱 *Celular:* ${user.celular}
+${addr?`📍 *Dirección:* ${addr}\n`:""}
+🛒 *Pedido:*
+${lines}
+
+💰 *Total:* S/ ${total.toFixed(2)}
+💳 *Pago:* ${pay}
+⭐ *Puntos que ganará:* +${pts} pts
+${notes?`\n📝 *Notas:* ${notes}`:""}
+
+_Enviado desde Chino Broaster App_`);
+      if (pay === "Yape") {
+        const payMsg = encodeURIComponent("Una vez realizado el pago al número 969179450 a nombre de Brandon Tarazona Nieto, envíe la captura del comprobante para confirmar el pago.");
+        window.open(`https://wa.me/${WA_NUMBER}?text=${payMsg}`, "_blank");
+      } else {
+        window.open(`https://wa.me/${WA_NUMBER}?text=${waMsg}`, "_blank");
+      }
+      onPlaceOrder(pay, addr, notes, name, false);
+      setStep("waiting");
+    }
   };
 
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
-      <div style={{ padding: "10px 18px", borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <span style={{ color: T.white, fontWeight: 800, fontSize: 17 }}>MIS PEDIDOS</span>
+  // Pantalla: esperando confirmación admin (Yape / Contra entrega)
+  if (step === "waiting") {
+    const confirmed = myOrders[0]?.payConfirmed;
+    if (confirmed) {
+      return (
+        <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:28,textAlign:"center" }}>
+          <div style={{ fontSize:72 }}>✅</div>
+          <div style={{ color:T.green,fontWeight:800,fontSize:20,marginTop:16 }}>¡Pago recibido!</div>
+          <div style={{ color:T.white,fontSize:14,marginTop:12,lineHeight:1.7 }}>Su pedido ha sido registrado correctamente y será procesado en breve. ¡Gracias por su compra!</div>
+          <div style={{ color:T.gold,fontWeight:700,fontSize:17,marginTop:20 }}>+{myOrders[0]?.ptsEarned||pts} pts acumulados 🎉</div>
+          <button className="btn-red" style={{ marginTop:32,width:"100%" }} onClick={()=>setStep("form")}>Volver al inicio</button>
+        </div>
+      );
+    }
+    return (
+      <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:28,textAlign:"center" }}>
+        <div style={{ fontSize:64,animation:"pulse 1.5s infinite" }}>⏳</div>
+        <div style={{ color:T.gold,fontWeight:800,fontSize:18,marginTop:16 }}>Esperando confirmación</div>
+        <div style={{ color:T.grey,fontSize:13,marginTop:10,lineHeight:1.7 }}>
+          {pay==="Yape"
+            ? "Envía la captura de tu pago Yape por WhatsApp. El local confirmará y tus puntos serán acreditados."
+            : "Tu pedido está registrado. El repartidor te contactará al momento de la entrega."}
+        </div>
+        <div style={{ background:T.card,borderRadius:16,border:`1px solid ${T.border}`,padding:18,marginTop:24,width:"100%" }}>
+          <div style={{ color:T.white,fontWeight:700,fontSize:15 }}>Total: S/ {total.toFixed(2)}</div>
+          <div style={{ color:T.gold,fontSize:13,marginTop:6 }}>Ganarás: +{pts} pts al confirmarse</div>
+        </div>
+        <div style={{ color:T.grey,fontSize:11,marginTop:14 }}>Esta pantalla se actualiza automáticamente</div>
+        <button className="btn-outline" style={{ marginTop:20,width:"100%" }} onClick={()=>setStep("form")}>← Volver</button>
       </div>
-      <div className="scroll" style={{ padding: "12px 14px" }}>
-        {/* Cart */}
+    );
+  }
+
+  // Pantalla: pago en efectivo confirmado
+  if (step === "confirmed_cash") {
+    return (
+      <div style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:28,textAlign:"center" }}>
+        <div style={{ fontSize:72 }}>✅</div>
+        <div style={{ color:T.green,fontWeight:800,fontSize:20,marginTop:16 }}>¡Pago recibido!</div>
+        <div style={{ color:T.white,fontSize:14,marginTop:12,lineHeight:1.7 }}>Su pedido ha sido registrado correctamente y será procesado en breve. ¡Gracias por su compra!</div>
+        <div style={{ color:T.gold,fontWeight:700,fontSize:17,marginTop:20 }}>+{pts} pts acumulados 🎉</div>
+        <button className="btn-red" style={{ marginTop:32,width:"100%" }} onClick={()=>setStep("form")}>Volver al inicio</button>
+      </div>
+    );
+  }
+
+  // Formulario principal
+  return (
+    <div style={{ flex:1,display:"flex",flexDirection:"column" }}>
+      <div style={{ padding:"10px 18px",borderBottom:`1px solid ${T.border}`,flexShrink:0 }}>
+        <span style={{ color:T.white,fontWeight:800,fontSize:17 }}>MIS PEDIDOS</span>
+      </div>
+      <div className="scroll" style={{ padding:"12px 14px" }}>
         {cart.length > 0 && (
-          <div style={{ marginBottom: 18 }}>
-            <div style={{ color: T.white, fontWeight: 700, fontSize: 14, marginBottom: 10 }}>🛒 TU PEDIDO ACTUAL</div>
+          <div style={{ marginBottom:18 }}>
+            <div style={{ color:T.white,fontWeight:700,fontSize:14,marginBottom:10 }}>🛒 TU PEDIDO ACTUAL</div>
             {cart.map(item => (
-              <div key={item.id} style={{ background: T.card, borderRadius: 14, border: `1px solid ${T.border}`, padding: "11px 13px", marginBottom: 7, display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 22 }}>{item.emoji}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ color: T.white, fontSize: 13, fontWeight: 600 }}>{item.name}</div>
-                  <div style={{ color: T.gold, fontSize: 13, fontWeight: 700 }}>{fmt(item.price*item.qty)}</div>
+              <div key={item.id} style={{ background:T.card,borderRadius:14,border:`1px solid ${T.border}`,padding:"11px 13px",marginBottom:7,display:"flex",alignItems:"center",gap:10 }}>
+                <span style={{ fontSize:22 }}>{item.emoji}</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ color:T.white,fontSize:13,fontWeight:600 }}>{item.name}</div>
+                  <div style={{ color:T.gold,fontSize:13,fontWeight:700 }}>S/ {(item.price*item.qty).toFixed(2)}</div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <button onClick={() => onUpdate(item.id, item.qty-1)} style={{ background: T.border, border: "none", borderRadius: 6, width: 26, height: 26, color: T.white, cursor: "pointer", fontFamily: "Poppins,sans-serif", fontSize: 16 }}>−</button>
-                  <span style={{ color: T.white, fontWeight: 700, fontSize: 13, minWidth: 16, textAlign: "center" }}>{item.qty}</span>
-                  <button onClick={() => onUpdate(item.id, item.qty+1)} style={{ background: T.red, border: "none", borderRadius: 6, width: 26, height: 26, color: "#fff", cursor: "pointer", fontFamily: "Poppins,sans-serif", fontSize: 16 }}>+</button>
+                <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                  <button onClick={()=>onUpdate(item.id,item.qty-1)} style={{ background:T.border,border:"none",borderRadius:6,width:26,height:26,color:T.white,cursor:"pointer",fontFamily:"Poppins,sans-serif",fontSize:16 }}>−</button>
+                  <span style={{ color:T.white,fontWeight:700,fontSize:13,minWidth:16,textAlign:"center" }}>{item.qty}</span>
+                  <button onClick={()=>onUpdate(item.id,item.qty+1)} style={{ background:T.red,border:"none",borderRadius:6,width:26,height:26,color:"#fff",cursor:"pointer",fontFamily:"Poppins,sans-serif",fontSize:16 }}>+</button>
                 </div>
               </div>
             ))}
 
-            {/* Order form */}
-            <div className="card" style={{ marginTop: 12 }}>
-              <div style={{ color: T.white, fontWeight: 700, fontSize: 13, marginBottom: 12 }}>Datos del pedido</div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ color: T.grey, fontSize: 11, fontWeight: 600, marginBottom: 5 }}>TU NOMBRE</div>
+            <div className="card" style={{ marginTop:12 }}>
+              <div style={{ color:T.white,fontWeight:700,fontSize:13,marginBottom:12 }}>Datos del pedido</div>
+              <div style={{ marginBottom:10 }}>
+                <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>TU NOMBRE</div>
                 <input className="inp" value={name} onChange={e=>setName(e.target.value)} placeholder="Tu nombre" />
               </div>
-              <div style={{ marginBottom: 10 }}>
-                <div style={{ color: T.grey, fontSize: 11, fontWeight: 600, marginBottom: 5 }}>DIRECCIÓN (para delivery)</div>
+              <div style={{ marginBottom:10 }}>
+                <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>DIRECCIÓN (para delivery)</div>
                 <input className="inp" value={addr} onChange={e=>setAddr(e.target.value)} placeholder="Ej: Jr. Los Pinos 234, Apt 3B" />
               </div>
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ color: T.grey, fontSize: 11, fontWeight: 600, marginBottom: 5 }}>MÉTODO DE PAGO</div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  {["Yape","Efectivo","Contra entrega"].map(m => (
-                    <button key={m} onClick={() => setPay(m)} style={{ flex: 1, padding: "9px 4px", borderRadius: 10, border: `1.5px solid ${pay===m ? T.gold : T.border}`, background: pay===m ? `${T.gold}18` : T.card, color: pay===m ? T.gold : T.grey, fontFamily: "Poppins,sans-serif", fontWeight: 600, fontSize: 11, cursor: "pointer" }}>{m}</button>
+              <div style={{ marginBottom:14 }}>
+                <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>MÉTODO DE PAGO</div>
+                <div style={{ display:"flex",gap:8 }}>
+                  {["Yape","Efectivo","Contra entrega"].map(m=>(
+                    <button key={m} onClick={()=>setPay(m)} style={{ flex:1,padding:"9px 4px",borderRadius:10,border:`1.5px solid ${pay===m?T.gold:T.border}`,background:pay===m?`${T.gold}18`:T.card,color:pay===m?T.gold:T.grey,fontFamily:"Poppins,sans-serif",fontWeight:600,fontSize:11,cursor:"pointer" }}>{m}</button>
                   ))}
                 </div>
               </div>
-              <div style={{ marginBottom: 14 }}>
-                <div style={{ color: T.grey, fontSize: 11, fontWeight: 600, marginBottom: 5 }}>NOTAS ADICIONALES</div>
-                <textarea className="inp" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ej: Sin cebolla, salsa aparte..." style={{ resize: "none", height: 60 }} />
+
+              {pay==="Yape" && (
+                <div style={{ background:"#0a1628",border:"1px solid #1e3a5f",borderRadius:12,padding:"12px 14px",marginBottom:14 }}>
+                  <div style={{ color:"#60A5FA",fontWeight:700,fontSize:12,marginBottom:6 }}>💜 Pago por Yape</div>
+                  <div style={{ color:T.grey,fontSize:12,lineHeight:1.6 }}>
+                    Una vez realizado el pago al número <strong style={{ color:T.white }}>969179450</strong> a nombre de <strong style={{ color:T.white }}>Brandon Tarazona Nieto</strong>, envíe la captura del comprobante para confirmar el pago.
+                  </div>
+                </div>
+              )}
+              {pay==="Contra entrega" && (
+                <div style={{ background:"#0d1f06",border:"1px solid #2d4a0f",borderRadius:12,padding:"12px 14px",marginBottom:14 }}>
+                  <div style={{ color:"#7ec850",fontWeight:700,fontSize:12,marginBottom:4 }}>🛵 Contra entrega</div>
+                  <div style={{ color:T.grey,fontSize:12 }}>Pagas cuando recibes tu pedido. El repartidor te contactará al llegar.</div>
+                </div>
+              )}
+              {pay==="Efectivo" && (
+                <div style={{ background:"#1a0a00",border:"1px solid #3a2a0f",borderRadius:12,padding:"12px 14px",marginBottom:14 }}>
+                  <div style={{ color:T.gold,fontWeight:700,fontSize:12,marginBottom:4 }}>💵 Pago en efectivo</div>
+                  <div style={{ color:T.grey,fontSize:12 }}>Realiza el pago en el local. Tus puntos se acreditarán al instante.</div>
+                </div>
+              )}
+
+              <div style={{ marginBottom:14 }}>
+                <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>NOTAS ADICIONALES</div>
+                <textarea className="inp" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ej: Sin cebolla, salsa aparte..." style={{ resize:"none",height:60 }}/>
               </div>
-              {/* Summary */}
-              <div style={{ borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                  <span style={{ color: T.grey, fontSize: 13 }}>Subtotal</span>
-                  <span style={{ color: T.white, fontSize: 13, fontWeight: 600 }}>{fmt(total)}</span>
+
+              <div style={{ borderTop:`1px solid ${T.border}`,paddingTop:12 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
+                  <span style={{ color:T.grey,fontSize:13 }}>Subtotal</span>
+                  <span style={{ color:T.white,fontSize:13,fontWeight:600 }}>S/ {total.toFixed(2)}</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                  <span style={{ color: T.gold, fontSize: 13 }}>💫 Ganarás</span>
-                  <span style={{ color: T.gold, fontWeight: 700, fontSize: 13 }}>+{pts} pts</span>
+                <div style={{ display:"flex",justifyContent:"space-between",marginBottom:10 }}>
+                  <span style={{ color:T.gold,fontSize:13 }}>💫 Ganarás</span>
+                  <span style={{ color:T.gold,fontWeight:700,fontSize:13 }}>+{pts} pts</span>
                 </div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 14 }}>
-                  <span style={{ color: T.white, fontWeight: 700, fontSize: 15 }}>TOTAL</span>
-                  <span style={{ color: T.white, fontWeight: 900, fontSize: 15 }}>{fmt(total)}</span>
+                <div style={{ display:"flex",justifyContent:"space-between",marginBottom:16 }}>
+                  <span style={{ color:T.white,fontWeight:700,fontSize:15 }}>TOTAL</span>
+                  <span style={{ color:T.white,fontWeight:900,fontSize:15 }}>S/ {total.toFixed(2)}</span>
                 </div>
               </div>
-              <button onClick={doOrder} style={{ width: "100%", background: "#075E54", border: "none", borderRadius: 12, padding: 14, color: "#fff", fontFamily: "Poppins,sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
-                <span style={{ fontSize: 20 }}>💬</span> ENVIAR PEDIDO POR WHATSAPP
-              </button>
-              <div style={{ color: T.grey, fontSize: 11, textAlign: "center", marginTop: 8 }}>Se abrirá WhatsApp con tu pedido listo para enviar</div>
+
+              {(pay==="Yape"||pay==="Contra entrega") && (
+                <>
+                  <button onClick={doOrder} style={{ width:"100%",background:"#075E54",border:"none",borderRadius:12,padding:14,color:"#fff",fontFamily:"Poppins,sans-serif",fontWeight:700,fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10 }}>
+                    <span style={{ fontSize:20 }}>💬</span> ENVIAR PEDIDO POR WHATSAPP
+                  </button>
+                  <div style={{ color:T.grey,fontSize:11,textAlign:"center",marginTop:8 }}>Se abrirá WhatsApp con tu pedido listo para enviar</div>
+                </>
+              )}
+              {pay==="Efectivo" && (
+                <button onClick={doOrder} style={{ width:"100%",background:T.red,border:"none",borderRadius:12,padding:14,color:"#fff",fontFamily:"Poppins,sans-serif",fontWeight:700,fontSize:14,cursor:"pointer" }}>
+                  💵 CONFIRMAR PEDIDO EN EFECTIVO
+                </button>
+              )}
             </div>
           </div>
         )}
 
-        {/* Historial */}
-        <div style={{ color: T.white, fontWeight: 700, fontSize: 14, marginBottom: 10 }}>HISTORIAL</div>
-        {hist.map(h => (
-          <div key={h.id} className="card" style={{ marginBottom: 9, display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 26 }}>{h.emoji}</span>
-            <div style={{ flex: 1 }}>
-              <div style={{ color: T.grey, fontSize: 11 }}>{h.date} · {h.id}</div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
-                <StatusChip status={h.status} />
-                <span style={{ color: T.green, fontSize: 11, fontWeight: 700 }}>+{h.pts} pts</span>
+        <div style={{ color:T.white,fontWeight:700,fontSize:14,marginBottom:10 }}>HISTORIAL</div>
+        {myOrders.length===0 && <div style={{ color:T.grey,fontSize:13,textAlign:"center",padding:"20px 0" }}>Aún no tienes pedidos</div>}
+        {myOrders.map(h=>(
+          <div key={h.id} className="card" style={{ marginBottom:9,display:"flex",alignItems:"center",gap:12 }}>
+            <span style={{ fontSize:26 }}>🍗</span>
+            <div style={{ flex:1 }}>
+              <div style={{ color:T.grey,fontSize:11 }}>{h.time} · {h.id}</div>
+              <div style={{ display:"flex",gap:8,alignItems:"center",marginTop:4 }}>
+                <StatusChip status={h.status}/>
+                {h.payConfirmed && <span style={{ color:T.green,fontSize:11,fontWeight:700 }}>+{h.ptsEarned||Math.floor(h.total)} pts</span>}
               </div>
             </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ color: T.white, fontWeight: 700, fontSize: 14 }}>{fmt(h.total)}</div>
+            <div style={{ textAlign:"right" }}>
+              <div style={{ color:T.white,fontWeight:700,fontSize:14 }}>S/ {h.total.toFixed(2)}</div>
+              <div style={{ color:T.grey,fontSize:10 }}>{h.pay}</div>
             </div>
           </div>
         ))}
@@ -836,69 +994,208 @@ function ProfileScreen({ user, onLogout }) {
 // ADMIN PANEL
 // ════════════════════════════════════════════════════════════════════════════
 
-function AdminPanel({ menuItems, setMenuItems, promos, setPromos, orders, setOrders, onClose }) {
+function AdminPanel({ menuItems, setMenuItems, promos, setPromos, orders, setOrders, clients, refreshClients, onClose, onConfirmPayForUser }) {
   const [tab, setTab] = useState("pedidos");
   const [editItem, setEditItem] = useState(null);
   const [editPromo, setEditPromo] = useState(null);
   const [newItem, setNewItem] = useState(false);
 
+  // Código de referido settings
+  const [refCode, setRefCode]       = useState(() => { try { return localStorage.getItem("cb_refcode")||"POLLO"; } catch{return "POLLO";} });
+  const [refActive, setRefActive]   = useState(() => { try { return localStorage.getItem("cb_refactive")!=="false"; } catch{return true;} });
+  const [refEdit, setRefEdit]       = useState(false);
+  const [refTemp, setRefTemp]       = useState(refCode);
+
+  const saveRef = () => {
+    const c = refTemp.trim().toUpperCase();
+    if (!c) return;
+    setRefCode(c);
+    setRefActive(true);
+    try { localStorage.setItem("cb_refcode",c); localStorage.setItem("cb_refactive","true"); } catch{}
+    setRefEdit(false);
+  };
+  const toggleRef = (v) => {
+    setRefActive(v);
+    try { localStorage.setItem("cb_refactive",String(v)); } catch{}
+  };
+
   // ── Tab: Pedidos ──────────────────────────────────────────────────────────
   const TabPedidos = () => {
     const stats = [
-      { label: "Nuevos", val: orders.filter(o=>o.status==="Nuevo").length, color: T.blue },
-      { label: "En proceso", val: orders.filter(o=>o.status==="Preparando"||o.status==="En Reparto").length, color: T.gold },
-      { label: "Entregados", val: orders.filter(o=>o.status==="Entregado").length, color: T.green },
+      { label:"Nuevos",     val:orders.filter(o=>o.status==="Nuevo").length,                               color:T.blue  },
+      { label:"En proceso", val:orders.filter(o=>o.status==="Preparando"||o.status==="En Reparto").length, color:T.gold  },
+      { label:"Entregados", val:orders.filter(o=>o.status==="Entregado").length,                           color:T.green },
     ];
     const nextStatus = { "Nuevo":"Preparando","Preparando":"En Reparto","En Reparto":"Entregado","Entregado":"Entregado" };
 
+    const confirmPay = (orderId) => {
+      setOrders(prev => prev.map(o => {
+        if (o.id !== orderId) return o;
+        const updated = { ...o, payConfirmed: true, status: "Preparando" };
+        const users = getUsers();
+        const idx = users.findIndex(u => u.celular === o.celular);
+        if (idx !== -1) {
+          const newPts = (users[idx].pts||0) + Math.floor(o.total);
+          users[idx] = { ...users[idx], pts: newPts };
+          saveUsers(users);
+          refreshClients();
+          onConfirmPayForUser && onConfirmPayForUser(o.celular, newPts);
+        }
+        return updated;
+      }));
+    };
+
     return (
-      <div className="scroll" style={{ padding: "12px 14px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 14 }}>
-          {stats.map(s => (
-            <div key={s.label} className="card" style={{ textAlign: "center" }}>
-              <div style={{ color: s.color, fontWeight: 900, fontSize: 22 }}>{s.val}</div>
-              <div style={{ color: T.grey, fontSize: 10 }}>{s.label}</div>
+      <div className="scroll" style={{ padding:"12px 14px" }}>
+        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14 }}>
+          {stats.map(s=>(
+            <div key={s.label} className="card" style={{ textAlign:"center" }}>
+              <div style={{ color:s.color,fontWeight:900,fontSize:22 }}>{s.val}</div>
+              <div style={{ color:T.grey,fontSize:10 }}>{s.label}</div>
             </div>
           ))}
         </div>
-        {orders.length === 0 && <div style={{ textAlign: "center", color: T.grey, padding: "40px 0" }}>No hay pedidos aún.<br/>Los pedidos de WhatsApp aparecerán aquí.</div>}
-        {orders.map(o => (
+        {orders.length===0 && <div style={{ textAlign:"center",color:T.grey,padding:"40px 0" }}>No hay pedidos aún.</div>}
+        {orders.map(o=>(
           <div key={o.id} className="order-card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8 }}>
               <div>
-                <div style={{ color: T.white, fontWeight: 700, fontSize: 14 }}>{o.name}</div>
-                <div style={{ color: T.grey, fontSize: 11 }}>{o.id} · {o.time}</div>
+                <div style={{ color:T.white,fontWeight:700,fontSize:14 }}>{o.name}</div>
+                <div style={{ color:T.grey,fontSize:11 }}>{o.id} · {o.time}</div>
               </div>
-              <StatusChip status={o.status} />
+              <StatusChip status={o.status}/>
             </div>
-            <div style={{ color: T.grey, fontSize: 12, marginBottom: 8 }}>
+            <div style={{ color:T.grey,fontSize:12,marginBottom:8 }}>
               {o.items.map(i=>`${i.qty}x ${i.name}`).join(", ")}
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
               <div>
-                <span style={{ color: T.white, fontWeight: 700, fontSize: 15 }}>{fmt(o.total)}</span>
-                <span style={{ color: T.grey, fontSize: 12 }}> · {o.pay}</span>
+                <span style={{ color:T.white,fontWeight:700,fontSize:15 }}>{fmt(o.total)}</span>
+                <span style={{ color:T.grey,fontSize:12 }}> · {o.pay}</span>
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                {o.status !== "Entregado" && (
-                  <button onClick={() => setOrders(prev => prev.map(x => x.id===o.id ? {...x,status:nextStatus[x.status]} : x))}
-                    style={{ background: T.red, border: "none", borderRadius: 8, padding: "6px 12px", color: "#fff", fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                    → {nextStatus[o.status]}
-                  </button>
-                )}
-                <a href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(`Hola ${o.name}! Tu pedido ${o.id} está ${o.status.toLowerCase()}. 🍔`)}`} target="_blank" rel="noreferrer"
-                  style={{ background: "#075E54", border: "none", borderRadius: 8, padding: "6px 10px", color: "#fff", fontFamily: "Poppins,sans-serif", fontSize: 11, fontWeight: 700, cursor: "pointer", textDecoration: "none", display: "flex", alignItems: "center" }}>💬</a>
+            </div>
+
+            {/* Acciones según método de pago */}
+            {!o.payConfirmed && (o.pay==="Yape"||o.pay==="Contra entrega") && (
+              <div style={{ background:"#1a2a0a",border:"1px solid #2d4a0f",borderRadius:10,padding:"10px 12px",marginBottom:8 }}>
+                <div style={{ color:"#7ec850",fontSize:12,fontWeight:700,marginBottom:6 }}>
+                  {o.pay==="Yape" ? "💜 Esperando comprobante Yape" : "🛵 Pedido contra entrega"}
+                </div>
+                <button onClick={()=>confirmPay(o.id)}
+                  style={{ width:"100%",background:T.green,border:"none",borderRadius:8,padding:"8px",color:"#fff",fontFamily:"Poppins,sans-serif",fontSize:12,fontWeight:700,cursor:"pointer" }}>
+                  ✅ CONFIRMAR PAGO RECIBIDO
+                </button>
               </div>
+            )}
+            {!o.payConfirmed && o.pay==="Efectivo" && (
+              <div style={{ background:"#0d1f06",border:"1px solid #2d4a0f",borderRadius:10,padding:"10px 12px",marginBottom:8 }}>
+                <div style={{ color:"#7ec850",fontSize:12,fontWeight:700,marginBottom:6 }}>💵 Pago en efectivo</div>
+                <button onClick={()=>confirmPay(o.id)}
+                  style={{ width:"100%",background:T.green,border:"none",borderRadius:8,padding:"8px",color:"#fff",fontFamily:"Poppins,sans-serif",fontSize:12,fontWeight:700,cursor:"pointer" }}>
+                  ✅ PAGAR Y REGISTRAR
+                </button>
+              </div>
+            )}
+            {o.payConfirmed && (
+              <div style={{ background:"#0d2a0d",border:"1px solid #22C55E40",borderRadius:10,padding:"8px 12px",marginBottom:8 }}>
+                <span style={{ color:T.green,fontSize:12,fontWeight:700 }}>✅ Pago confirmado · +{Math.floor(o.total)} pts acreditados</span>
+              </div>
+            )}
+
+            <div style={{ display:"flex",gap:6 }}>
+              {o.status!=="Entregado" && (
+                <button onClick={()=>setOrders(prev=>prev.map(x=>x.id===o.id?{...x,status:nextStatus[x.status]}:x))}
+                  style={{ flex:1,background:T.red,border:"none",borderRadius:8,padding:"6px 12px",color:"#fff",fontFamily:"Poppins,sans-serif",fontSize:11,fontWeight:700,cursor:"pointer" }}>
+                  → {nextStatus[o.status]}
+                </button>
+              )}
+              <a href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(`Hola ${o.name}! Tu pedido ${o.id} está ${o.status.toLowerCase()}. 🍔`)}`} target="_blank" rel="noreferrer"
+                style={{ background:"#075E54",border:"none",borderRadius:8,padding:"6px 10px",color:"#fff",fontFamily:"Poppins,sans-serif",fontSize:11,fontWeight:700,cursor:"pointer",textDecoration:"none",display:"flex",alignItems:"center" }}>💬</a>
             </div>
           </div>
         ))}
-        {/* Simulate incoming order */}
-        <button onClick={() => {
-          const demo = { id:`#CB-00${orders.length+10}`, name:"Cliente Demo", time: new Date().toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"}), status:"Nuevo", pay:"Yape", total:28.50, items:[{qty:1,name:"Cheeseburger Clásica"},{qty:2,name:"Gaseosa Pequeña"}] };
-          setOrders(prev=>[demo,...prev]);
-        }} style={{ width:"100%",background:"transparent",border:`1.5px dashed ${T.border}`,borderRadius:12,padding:12,color:T.grey,fontFamily:"Poppins,sans-serif",fontSize:13,cursor:"pointer",marginTop:8 }}>
-          + Simular pedido de prueba
-        </button>
+      </div>
+    );
+  };
+
+  // ── Tab: Código QR (escanear código del cliente) ──────────────────────────
+  const TabCodigo = () => {
+    const [inputCode, setInputCode] = useState("");
+    const [pts, setPts]             = useState("");
+    const [found, setFound]         = useState(null);
+    const [err, setErr]             = useState("");
+    const [done, setDone]           = useState(false);
+
+    const buscar = () => {
+      setErr(""); setFound(null); setDone(false);
+      const users = getUsers();
+      const match = users.find(u => generateCode(u.celular) === inputCode.trim());
+      if (!match) { setErr("Código incorrecto o no encontrado"); return; }
+      setFound(match);
+    };
+
+    const registrar = () => {
+      const ptsNum = parseInt(pts);
+      if (!ptsNum || ptsNum <= 0) { setErr("Ingresa puntos válidos"); return; }
+      const users = getUsers();
+      const idx = users.findIndex(u => u.celular === found.celular);
+      if (idx !== -1) {
+        users[idx] = { ...users[idx], pts: (users[idx].pts||0) + ptsNum };
+        saveUsers(users);
+        refreshClients();
+      }
+      setDone(true);
+    };
+
+    return (
+      <div className="scroll" style={{ padding:"16px 14px" }}>
+        <div style={{ textAlign:"center",marginBottom:20 }}>
+          <div style={{ fontSize:40 }}>📱</div>
+          <div style={{ color:T.white,fontWeight:700,fontSize:16,marginTop:8 }}>Ingresar Código del Cliente</div>
+          <div style={{ color:T.grey,fontSize:12,marginTop:4 }}>El cliente te muestra su código de 6 dígitos</div>
+        </div>
+
+        <div style={{ marginBottom:12 }}>
+          <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>CÓDIGO DEL CLIENTE (6 dígitos)</div>
+          <input className="inp" placeholder="000000" type="number" maxLength={6} value={inputCode}
+            onChange={e=>{ setInputCode(e.target.value); setFound(null); setErr(""); setDone(false); }}
+            style={{ fontSize:24,fontWeight:800,letterSpacing:6,textAlign:"center" }} />
+        </div>
+        <button onClick={buscar} className="btn-red" style={{ marginBottom:16 }}>BUSCAR CLIENTE</button>
+
+        {err && <div style={{ background:"#2a0a0a",border:`1px solid ${T.red}40`,borderRadius:10,padding:"10px 14px",color:"#F87171",fontSize:13,marginBottom:12 }}>⚠️ {err}</div>}
+
+        {found && !done && (
+          <div style={{ background:T.card,border:`1px solid ${T.gold}40`,borderRadius:16,padding:16,marginBottom:14 }}>
+            <div style={{ display:"flex",gap:12,alignItems:"center",marginBottom:14 }}>
+              <div style={{ width:46,height:46,borderRadius:"50%",background:`${T.red}25`,display:"flex",alignItems:"center",justifyContent:"center",color:T.white,fontWeight:700,fontSize:20,border:`2px solid ${T.gold}` }}>{found.nombre[0].toUpperCase()}</div>
+              <div>
+                <div style={{ color:T.white,fontWeight:700,fontSize:15 }}>{found.nombre}</div>
+                <div style={{ color:T.grey,fontSize:12 }}>{found.celular}</div>
+                <div style={{ display:"flex",gap:4,alignItems:"center",marginTop:3 }}>
+                  <span style={{ color:getLevel(found.pts||0).color,fontSize:12,fontWeight:700 }}>{getLevel(found.pts||0).icon} {getLevel(found.pts||0).name}</span>
+                  <span style={{ color:T.gold,fontSize:12 }}>· {found.pts||0} pts actuales</span>
+                </div>
+              </div>
+            </div>
+            <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>PUNTOS A ACUMULAR</div>
+            <input className="inp" placeholder="Ej: 28 (según total del pedido)" type="number" value={pts}
+              onChange={e=>setPts(e.target.value)} style={{ marginBottom:12 }} />
+            <button onClick={registrar} style={{ width:"100%",background:T.green,border:"none",borderRadius:12,padding:13,color:"#fff",fontFamily:"Poppins,sans-serif",fontWeight:700,fontSize:14,cursor:"pointer" }}>
+              ✅ REGISTRAR PUNTOS
+            </button>
+          </div>
+        )}
+
+        {done && (
+          <div style={{ background:"#0d2a0d",border:"1px solid #22C55E40",borderRadius:16,padding:20,textAlign:"center" }}>
+            <div style={{ fontSize:40 }}>🎉</div>
+            <div style={{ color:T.green,fontWeight:800,fontSize:16,marginTop:8 }}>¡Listo!</div>
+            <div style={{ color:T.white,fontSize:13,marginTop:6 }}>Se acreditaron <strong style={{ color:T.gold }}>{pts} puntos</strong> a {found?.nombre}</div>
+            <button onClick={()=>{ setInputCode(""); setPts(""); setFound(null); setErr(""); setDone(false); }}
+              className="btn-red" style={{ marginTop:16,width:"100%" }}>Registrar otro</button>
+          </div>
+        )}
       </div>
     );
   };
@@ -947,6 +1244,33 @@ function AdminPanel({ menuItems, setMenuItems, promos, setPromos, orders, setOrd
     const del = (id) => setPromos(prev=>prev.filter(p=>p.id!==id));
     return (
       <div className="scroll" style={{ padding:"12px 14px" }}>
+
+        {/* ── Código de Referido ── */}
+        <div style={{ background:T.card,border:`1px solid ${T.gold}40`,borderRadius:16,padding:16,marginBottom:16 }}>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+            <div>
+              <div style={{ color:T.gold,fontWeight:700,fontSize:13 }}>🎁 Código de Referido</div>
+              <div style={{ color:T.grey,fontSize:11,marginTop:2 }}>Los clientes usan este código al registrarse</div>
+            </div>
+            <label className="toggle"><input type="checkbox" checked={refActive} onChange={e=>toggleRef(e.target.checked)}/><span className="toggle-track"/></label>
+          </div>
+          {refEdit ? (
+            <div style={{ display:"flex",gap:8,alignItems:"center" }}>
+              <input className="inp" value={refTemp} onChange={e=>setRefTemp(e.target.value.toUpperCase())} placeholder="Nuevo código" style={{ flex:1,fontWeight:800,letterSpacing:2,textTransform:"uppercase" }} maxLength={12} />
+              <button onClick={saveRef} style={{ background:T.green,border:"none",borderRadius:10,padding:"10px 14px",color:"#fff",fontFamily:"Poppins,sans-serif",fontWeight:700,fontSize:12,cursor:"pointer" }}>✓ Guardar</button>
+              <button onClick={()=>setRefEdit(false)} style={{ background:T.border,border:"none",borderRadius:10,padding:"10px 10px",color:T.grey,fontFamily:"Poppins,sans-serif",fontSize:12,cursor:"pointer" }}>✕</button>
+            </div>
+          ) : (
+            <div style={{ display:"flex",alignItems:"center",gap:10,background:T.surface,borderRadius:12,padding:"10px 14px" }}>
+              <div style={{ flex:1 }}>
+                <div style={{ color:refActive?T.white:T.grey,fontWeight:800,fontSize:22,letterSpacing:3 }}>{refCode}</div>
+                <div style={{ color:refActive?T.green:T.grey,fontSize:11,marginTop:2 }}>{refActive?"✅ Activo · 50 pts por referido":"⛔ Desactivado"}</div>
+              </div>
+              <button onClick={()=>{setRefTemp(refCode);setRefEdit(true);}} style={{ background:"none",border:`1px solid ${T.border}`,borderRadius:10,padding:"8px 12px",color:T.grey,cursor:"pointer",fontSize:12,fontFamily:"Poppins,sans-serif" }}>✏️ Cambiar</button>
+            </div>
+          )}
+        </div>
+
         <button onClick={()=>setEditPromo({id:nextId(promos),title:"",desc:"",active:true,color:T.red,isNew:true})}
           style={{ width:"100%",background:"transparent",border:`1.5px dashed ${T.gold}`,borderRadius:12,padding:11,color:T.gold,fontFamily:"Poppins,sans-serif",fontSize:13,fontWeight:600,cursor:"pointer",marginBottom:10 }}>+ Nueva promoción</button>
         {promos.map(p=>(
@@ -974,12 +1298,14 @@ function AdminPanel({ menuItems, setMenuItems, promos, setPromos, orders, setOrd
 
   // ── Tab: Clientes ─────────────────────────────────────────────────────────
   const TabClientes = () => {
-    const clients = [
-      { name:"Valeria Torres",tel:"969179450",pts:850,lvl:"Oro",bd:"15 Jun" },
-      { name:"Carlos Mamani",tel:"987654321",pts:320,lvl:"Plata",bd:"22 Ago" },
-      { name:"María López",tel:"912345678",pts:1250,lvl:"Oro",bd:"08 Mar" },
-      { name:"Diego Quispe",tel:"945678123",pts:2600,lvl:"Diamante",bd:"30 Nov" },
-    ];
+    // clientes reales registrados (excluye al dueño de la lista visible si quieres, o muéstralos todos)
+    const todayMD = new Date().toLocaleDateString("es",{day:"2-digit",month:"2-digit"});
+    const bdToday = clients.filter(c => {
+      if (!c.nacimiento) return false;
+      const parts = c.nacimiento.split("/");
+      return parts[0]===todayMD.split("/")[0] && parts[1]===todayMD.split("/")[1];
+    }).length;
+    const nivelOroPlus = clients.filter(c => { const l=getLevel(c.pts||0); return l.name==="Oro"||l.name==="Diamante"; }).length;
     return (
       <div className="scroll" style={{ padding:"12px 14px" }}>
         <div className="card" style={{ marginBottom:12,display:"flex",justifyContent:"space-between" }}>
@@ -988,31 +1314,41 @@ function AdminPanel({ menuItems, setMenuItems, promos, setPromos, orders, setOrd
             <div style={{ color:T.grey,fontSize:10 }}>Clientes</div>
           </div>
           <div style={{ textAlign:"center" }}>
-            <div style={{ color:T.gold,fontWeight:800,fontSize:20 }}>2</div>
+            <div style={{ color:T.gold,fontWeight:800,fontSize:20 }}>{nivelOroPlus}</div>
             <div style={{ color:T.grey,fontSize:10 }}>Nivel Oro+</div>
           </div>
           <div style={{ textAlign:"center" }}>
-            <div style={{ color:T.red,fontWeight:800,fontSize:20 }}>1</div>
+            <div style={{ color:T.red,fontWeight:800,fontSize:20 }}>{bdToday}</div>
             <div style={{ color:T.grey,fontSize:10 }}>Cumpleaños hoy</div>
           </div>
         </div>
+        {clients.length === 0 && (
+          <div style={{ textAlign:"center",padding:"40px 0",color:T.grey }}>
+            <div style={{ fontSize:40,marginBottom:12 }}>👥</div>
+            <div style={{ fontWeight:600 }}>Aún no hay clientes registrados</div>
+            <div style={{ fontSize:12,marginTop:6 }}>Cuando alguien se registre en la app, aparecerá aquí</div>
+          </div>
+        )}
         {clients.map(c=>{
-          const lvl = VIP.find(v=>v.name===c.lvl)||VIP[0];
+          const lvl = getLevel(c.pts||0);
           return (
-            <div key={c.name} className="card" style={{ marginBottom:8 }}>
+            <div key={c.celular} className="card" style={{ marginBottom:8 }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                 <div style={{ display:"flex",gap:10,alignItems:"center" }}>
-                  <div style={{ width:38,height:38,borderRadius:"50%",background:`${T.red}25`,display:"flex",alignItems:"center",justifyContent:"center",color:T.white,fontWeight:700,fontSize:16,border:`1.5px solid ${lvl.color}` }}>{c.name[0]}</div>
+                  <div style={{ width:38,height:38,borderRadius:"50%",background:`${T.red}25`,display:"flex",alignItems:"center",justifyContent:"center",color:T.white,fontWeight:700,fontSize:16,border:`1.5px solid ${lvl.color}` }}>{(c.nombre||"?")[0].toUpperCase()}</div>
                   <div>
-                    <div style={{ color:T.white,fontWeight:700,fontSize:13 }}>{c.name}</div>
-                    <div style={{ color:T.grey,fontSize:11 }}>{c.tel} · 🎂 {c.bd}</div>
+                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                      <div style={{ color:T.white,fontWeight:700,fontSize:13 }}>{c.nombre}</div>
+                      {c.isOwner && <span style={{ background:T.gold,color:"#000",fontSize:8,fontWeight:700,padding:"1px 6px",borderRadius:10 }}>DUEÑO</span>}
+                    </div>
+                    <div style={{ color:T.grey,fontSize:11 }}>{c.celular} · 🎂 {c.nacimiento||"—"}</div>
                     <div style={{ display:"flex",gap:6,marginTop:3,alignItems:"center" }}>
-                      <span style={{ color:lvl.color,fontSize:11,fontWeight:700 }}>{lvl.icon} {c.lvl}</span>
-                      <span style={{ color:T.gold,fontSize:11 }}>· {c.pts} pts</span>
+                      <span style={{ color:lvl.color,fontSize:11,fontWeight:700 }}>{lvl.icon} {lvl.name}</span>
+                      <span style={{ color:T.gold,fontSize:11 }}>· {c.pts||0} pts</span>
                     </div>
                   </div>
                 </div>
-                <a href={`https://wa.me/51${c.tel}?text=${encodeURIComponent("¡Hola "+c.name.split(" ")[0]+"! 🔥 Tienes una promo especial en Chino Broaster. ¡Visítanos!")}`} target="_blank" rel="noreferrer"
+                <a href={`https://wa.me/51${c.celular}?text=${encodeURIComponent("¡Hola "+((c.nombre||"").split(" ")[0])+"! 🔥 Tienes una promo especial en Chino Broaster. ¡Visítanos!")}`} target="_blank" rel="noreferrer"
                   style={{ background:"#075E54",borderRadius:10,padding:"8px 10px",color:"#fff",textDecoration:"none",fontSize:16 }}>💬</a>
               </div>
             </div>
@@ -1103,6 +1439,7 @@ function AdminPanel({ menuItems, setMenuItems, promos, setPromos, orders, setOrd
 
   const TABS = [
     { id:"pedidos", label:"Pedidos", icon:"📋" },
+    { id:"pagar",   label:"Pagar",   icon:"📱" },
     { id:"menu",    label:"Menú",    icon:"🍔" },
     { id:"promos",  label:"Promos",  icon:"🔥" },
     { id:"clientes",label:"Clientes",icon:"👥" },
@@ -1128,6 +1465,7 @@ function AdminPanel({ menuItems, setMenuItems, promos, setPromos, orders, setOrd
 
       <div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden" }}>
         {tab==="pedidos" && <TabPedidos/>}
+        {tab==="pagar"   && <TabCodigo/>}
         {tab==="menu"    && <TabMenu/>}
         {tab==="promos"  && <TabPromos/>}
         {tab==="clientes"&& <TabClientes/>}
@@ -1141,12 +1479,93 @@ function AdminPanel({ menuItems, setMenuItems, promos, setPromos, orders, setOrd
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// USER DATABASE (localStorage)
+// ════════════════════════════════════════════════════════════════════════════
+
+const OWNER = {
+  nombre: "Brandon",
+  celular: "969179450",
+  contrasena: "03032002",   // fecha nacimiento sin slashes
+  nacimiento: "03/03/2002",
+  referido: "POLLO",
+  pts: 0,
+  isOwner: true,
+};
+
+function getUsers() {
+  try {
+    const raw = localStorage.getItem("cb_users");
+    if (!raw) return [OWNER];
+    const users = JSON.parse(raw);
+    // siempre asegurar que el dueño existe
+    if (!users.find(u => u.celular === OWNER.celular)) users.unshift(OWNER);
+    return users;
+  } catch { return [OWNER]; }
+}
+
+function saveUsers(users) {
+  try { localStorage.setItem("cb_users", JSON.stringify(users)); } catch {}
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// LOGIN SCREEN
+// ════════════════════════════════════════════════════════════════════════════
+function LoginScreen({ onBack, onSuccess }) {
+  const [celular, setCelular] = useState("");
+  const [pass, setPass]       = useState("");
+  const [error, setError]     = useState("");
+
+  const doLogin = () => {
+    const cel = celular.replace(/\s/g,"");
+    const users = getUsers();
+    const found = users.find(u => u.celular.replace(/\s/g,"") === cel);
+    if (!found) { setError("Número no registrado"); return; }
+    if (found.contrasena !== pass) { setError("Contraseña incorrecta"); return; }
+    setError("");
+    onSuccess(found);
+  };
+
+  return (
+    <div style={{ flex:1,display:"flex",flexDirection:"column" }}>
+      <div style={{ padding:"10px 18px",display:"flex",alignItems:"center",gap:10,borderBottom:`1px solid ${T.border}`,flexShrink:0 }}>
+        <button className="btn-ghost" onClick={onBack} style={{ color:T.white,fontSize:22 }}>←</button>
+        <span style={{ color:T.white,fontWeight:700,fontSize:16 }}>Iniciar Sesión</span>
+      </div>
+      <div className="scroll" style={{ padding:"28px 22px" }}>
+        <div style={{ textAlign:"center",marginBottom:28 }}>
+          <div style={{ fontSize:52 }}>🔥</div>
+          <div style={{ color:T.white,fontWeight:800,fontSize:20,marginTop:8 }}>Bienvenido de vuelta</div>
+          <div style={{ color:T.grey,fontSize:13 }}>Ingresa con tu celular y contraseña</div>
+        </div>
+        <div style={{ marginBottom:14 }}>
+          <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>NÚMERO DE CELULAR</div>
+          <input className="inp" placeholder="999 999 999" type="tel" value={celular} onChange={e=>setCelular(e.target.value)} />
+        </div>
+        <div style={{ marginBottom:18 }}>
+          <div style={{ color:T.grey,fontSize:11,fontWeight:600,marginBottom:5 }}>CONTRASEÑA</div>
+          <input className="inp" placeholder="Tu contraseña" type="password" value={pass} onChange={e=>setPass(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&doLogin()} />
+        </div>
+        {error && <div style={{ background:"#2a0a0a",border:`1px solid ${T.red}40`,borderRadius:10,padding:"10px 14px",color:"#F87171",fontSize:13,marginBottom:14 }}>⚠️ {error}</div>}
+        <button className="btn-red" onClick={doLogin}>INICIAR SESIÓN</button>
+        <div style={{ textAlign:"center",color:T.grey,fontSize:12,marginTop:16 }}>
+          ¿No tienes cuenta? <span style={{ color:T.gold,fontWeight:600,cursor:"pointer" }} onClick={onBack}>Regístrate gratis</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // ROOT APP
 // ════════════════════════════════════════════════════════════════════════════
 export default function App() {
   const [mode, setMode]         = useState("app");   // "app" | "admin"
-  const [screen, setScreen]     = useState("splash"); // splash | register | app
+  const [screen, setScreen]     = useState("splash"); // splash | login | register | app
   const [tab, setTab]           = useState("home");
+  const [adminPass, setAdminPass] = useState("");
+  const [adminError, setAdminError] = useState("");
+  const [showAdminModal, setShowAdminModal] = useState(false);
 
   // Shared state
   const [menuItems, setMenuItems] = useState(INITIAL_MENU);
@@ -1154,9 +1573,14 @@ export default function App() {
   const [orders, setOrders]       = useState([]);
 
   // Client state
-  const [user, setUser]   = useState({ nombre:"Valeria", celular:"969 179 450", pts:850 });
+  const [user, setUser]   = useState(null);
   const [cart, setCart]   = useState([]);
   const [toast, setToast] = useState(null);
+
+  // Sync clients list for admin
+  const [clients, setClients] = useState(() => getUsers());
+
+  const refreshClients = () => setClients(getUsers());
 
   const showToast = useCallback((msg) => {
     setToast(msg);
@@ -1175,23 +1599,62 @@ export default function App() {
     setCart(prev => qty <= 0 ? prev.filter(c=>c.id!==id) : prev.map(c=>c.id===id?{...c,qty}:c));
   }, []);
 
-  const placeOrder = useCallback(() => {
+  const placeOrder = useCallback((payMethod, addr, notes, name, givePointsNow) => {
     const total = cart.reduce((s,i)=>s+i.price*i.qty,0);
+    const earned = Math.floor(total);
     const newOrder = {
       id: `#CB-${String(orders.length+1).padStart(3,"0")}`,
-      name: user.nombre,
+      name: name || user.nombre,
+      celular: user.celular,
       time: new Date().toLocaleTimeString("es",{hour:"2-digit",minute:"2-digit"}),
+      date: new Date().toLocaleDateString("es",{day:"2-digit",month:"short"}),
       status: "Nuevo",
-      pay: "Yape",
+      pay: payMethod,
       total,
-      items: cart.map(i=>({qty:i.qty,name:i.name})),
+      items: cart.map(i=>({qty:i.qty,name:i.name,emoji:i.emoji})),
+      payConfirmed: givePointsNow,
+      ptsEarned: earned,
+      addr: addr||"",
+      notes: notes||"",
     };
     setOrders(prev=>[newOrder,...prev]);
-    setUser(prev=>({...prev,pts:prev.pts+Math.floor(total)}));
+    if (givePointsNow) {
+      const updatedUser = {...user, pts: user.pts + earned};
+      setUser(updatedUser);
+      const users = getUsers();
+      const idx = users.findIndex(u => u.celular === user.celular);
+      if (idx !== -1) { users[idx] = {...users[idx], pts: updatedUser.pts}; saveUsers(users); refreshClients(); }
+    }
     setCart([]);
-    showToast("🎉 Pedido enviado por WhatsApp · +" + Math.floor(total) + " pts");
+  }, [cart, orders, user]);
+
+  const doLogin = (foundUser) => {
+    setUser(foundUser);
+    setScreen("app");
     setTab("home");
-  }, [cart, orders, user, showToast]);
+  };
+
+  const doLogout = () => {
+    setUser(null);
+    setScreen("splash");
+    setCart([]);
+    setTab("home");
+  };
+
+  // Admin access: only owner (Brandon)
+  const tryAdmin = () => {
+    const users = getUsers();
+    const owner = users.find(u => u.isOwner);
+    if (adminPass === owner.contrasena) {
+      setMode("admin");
+      setShowAdminModal(false);
+      setAdminPass("");
+      setAdminError("");
+      refreshClients();
+    } else {
+      setAdminError("Contraseña incorrecta");
+    }
+  };
 
   const navItems = [
     { id:"home",    icon:"🏠", label:"Inicio" },
@@ -1201,18 +1664,48 @@ export default function App() {
     { id:"perfil",  icon:"👤", label:"Perfil" },
   ];
 
+  const updateUserPts = useCallback((newPts) => {
+    const updatedUser = {...user, pts: newPts};
+    setUser(updatedUser);
+    const users = getUsers();
+    const idx = users.findIndex(u => u.celular === user.celular);
+    if (idx !== -1) { users[idx] = {...users[idx], pts: newPts}; saveUsers(users); refreshClients(); }
+  }, [user]);
+
   const renderTab = () => {
+    if (!user) return null;
     switch(tab) {
       case "home":    return <HomeScreen user={user} cart={cart} promos={promos} onNav={setTab} menuItems={menuItems}/>;
       case "menu":    return <MenuScreen cart={cart} onAdd={addToCart} onNav={setTab} menuItems={menuItems}/>;
       case "qr":      return <QRScreen user={user} onBack={()=>setTab("home")}/>;
-      case "rewards": return <RewardsScreen user={user} onClaim={pts=>setUser(prev=>({...prev,pts:prev.pts-pts}))}/>;
+      case "rewards": return <RewardsScreen user={user} onClaim={pts=>{ const newPts=user.pts-pts; updateUserPts(newPts); }}/>;
       case "nivel":   return <NivelScreen user={user}/>;
-      case "pedidos": return <PedidosScreen cart={cart} user={user} onUpdate={updateCart} onPlaceOrder={placeOrder}/>;
-      case "perfil":  return <ProfileScreen user={user} onLogout={()=>{setScreen("splash");setCart([]);setTab("home");}}/>;
+      case "pedidos": return <PedidosScreen cart={cart} user={user} onUpdate={updateCart} onPlaceOrder={placeOrder} orders={orders} onUpdateUser={updateUserPts}/>;
+      case "perfil":  return <ProfileScreen user={user} onLogout={doLogout}/>;
       default: return null;
     }
   };
+
+  // Admin password modal
+  const AdminModal = () => (
+    <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
+      <div style={{ background:T.surface,borderRadius:20,padding:24,width:"100%",maxWidth:340,border:`1px solid ${T.border}` }}>
+        <div style={{ textAlign:"center",marginBottom:20 }}>
+          <div style={{ fontSize:36 }}>🔐</div>
+          <div style={{ color:T.white,fontWeight:700,fontSize:16,marginTop:8 }}>Acceso Admin</div>
+          <div style={{ color:T.grey,fontSize:12,marginTop:4 }}>Solo para el dueño del negocio</div>
+        </div>
+        <input className="inp" type="password" placeholder="Contraseña del dueño" value={adminPass}
+          onChange={e=>{setAdminPass(e.target.value);setAdminError("");}}
+          onKeyDown={e=>e.key==="Enter"&&tryAdmin()} style={{ marginBottom:10 }} />
+        {adminError && <div style={{ color:"#F87171",fontSize:12,marginBottom:10 }}>⚠️ {adminError}</div>}
+        <div style={{ display:"flex",gap:8 }}>
+          <button onClick={()=>{setShowAdminModal(false);setAdminPass("");setAdminError("");}} className="btn-outline" style={{ flex:1 }}>Cancelar</button>
+          <button onClick={tryAdmin} className="btn-red" style={{ flex:1 }}>Entrar</button>
+        </div>
+      </div>
+    </div>
+  );
 
   const ClientApp = () => (
     <div className="shell">
@@ -1226,8 +1719,9 @@ export default function App() {
 
         {/* Screen content */}
         <div style={{ flex:1,display:"flex",flexDirection:"column",overflow:"hidden",position:"relative" }}>
-          {screen === "splash"   && <SplashScreen onLogin={()=>setScreen("app")} onRegister={()=>setScreen("register")}/>}
-          {screen === "register" && <RegisterScreen onBack={()=>setScreen("splash")} onSuccess={f=>{setUser({nombre:f.nombre,celular:f.celular,pts:0});setScreen("app");}}/>}
+          {screen === "splash"   && <SplashScreen onLogin={()=>setScreen("login")} onRegister={()=>setScreen("register")}/>}
+          {screen === "login"    && <LoginScreen onBack={()=>setScreen("splash")} onSuccess={doLogin}/>}
+          {screen === "register" && <RegisterScreen onBack={()=>setScreen("splash")} onSuccess={doLogin}/>}
           {screen === "app"      && renderTab()}
           <Toast msg={toast}/>
         </div>
@@ -1255,15 +1749,26 @@ export default function App() {
   return (
     <>
       <style>{CSS}</style>
-      {/* Mode switcher */}
-      <div className="mode-switch">
-        <button className={`mode-btn ${mode==="app"?"act":""}`} onClick={()=>setMode("app")}>📱 App</button>
-        <button className={`mode-btn ${mode==="admin"?"act":""}`} onClick={()=>setMode("admin")}>⚙️ Admin</button>
-      </div>
+
+      {/* Admin button — pequeño, discreto, solo visible en splash o cuando está en admin */}
+      {(screen === "splash" || screen === "login" || mode === "admin") && (
+        <div className="mode-switch">
+          {mode === "admin"
+            ? <>
+                <button className="mode-btn act" onClick={()=>setMode("app")}>← App</button>
+              </>
+            : <button className="mode-btn" onClick={()=>setShowAdminModal(true)} style={{ fontSize:10,padding:"6px 10px" }}>⚙️</button>
+          }
+        </div>
+      )}
+
+      {showAdminModal && <AdminModal/>}
 
       {mode === "app"
         ? <ClientApp/>
-        : <AdminPanel menuItems={menuItems} setMenuItems={setMenuItems} promos={promos} setPromos={setPromos} orders={orders} setOrders={setOrders} onClose={()=>setMode("app")}/>
+        : <AdminPanel menuItems={menuItems} setMenuItems={setMenuItems} promos={promos} setPromos={setPromos} orders={orders} setOrders={setOrders} clients={clients} refreshClients={refreshClients} onClose={()=>setMode("app")}
+            onConfirmPayForUser={(cel,newPts)=>{ if(user && user.celular===cel){ setUser(prev=>({...prev,pts:newPts})); } }}
+          />
       }
     </>
   );
