@@ -146,8 +146,11 @@ body{background:#050505;min-height:100vh;font-family:'Poppins',sans-serif;displa
 .sbar-icons{display:flex;gap:4px;align-items:center;color:${T.white};font-size:12px;}
 
 /* ── scroll ── */
-.scroll{flex:1;overflow-y:auto;overflow-x:hidden;scrollbar-width:none;}
-.scroll::-webkit-scrollbar{display:none;}
+.scroll{flex:1;overflow-y:scroll;overflow-x:hidden;-webkit-overflow-scrolling:touch;scrollbar-width:thin;scrollbar-color:${T.red}99 ${T.border}44;}
+.scroll::-webkit-scrollbar{width:5px;}
+.scroll::-webkit-scrollbar-track{background:${T.border}44;border-radius:4px;}
+.scroll::-webkit-scrollbar-thumb{background:${T.red}99;border-radius:4px;}
+.scroll::-webkit-scrollbar-thumb:hover{background:${T.red};}
 
 /* ── bottom nav ── */
 .bnav{display:flex;background:${T.surface};border-top:1px solid ${T.border};padding:6px 0 18px;flex-shrink:0;position:relative;z-index:100;}
@@ -171,11 +174,16 @@ body{background:#050505;min-height:100vh;font-family:'Poppins',sans-serif;displa
 .btn-ghost{background:transparent;border:none;cursor:pointer;font-family:'Poppins',sans-serif;}
 
 /* ── input ── */
-.inp{background:${T.card};border:1.5px solid ${T.border};border-radius:12px;padding:12px 14px;color:${T.white};font-family:'Poppins',sans-serif;font-size:14px;width:100%;outline:none;transition:.15s;}
+.inp{background:${T.card};border:1.5px solid ${T.border};border-radius:12px;padding:12px 14px;color:${T.white};font-family:'Poppins',sans-serif;font-size:16px;width:100%;outline:none;transition:.15s;-webkit-appearance:none;touch-action:manipulation;}
 .inp:focus{border-color:${T.gold};}
 .inp::placeholder{color:${T.grey};}
-textarea.inp{resize:vertical;min-height:72px;}
-select.inp{appearance:none;cursor:pointer;}
+textarea.inp{resize:vertical;min-height:72px;font-size:14px;}
+select.inp{appearance:none;cursor:pointer;font-size:14px;}
+
+/* ── modal scroll ── */
+.modal-sheet{scrollbar-width:thin;scrollbar-color:${T.red}55 transparent;}
+.modal-sheet::-webkit-scrollbar{width:4px;}
+.modal-sheet::-webkit-scrollbar-thumb{background:${T.red}70;border-radius:4px;}
 
 /* ── badge ── */
 .badge{position:absolute;top:-4px;right:-4px;background:${T.red};color:#fff;width:18px;height:18px;border-radius:50%;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;}
@@ -315,6 +323,7 @@ function SplashScreen({ onLogin, onRegister }) {
         <div style={{ textAlign: "center", color: T.grey, fontSize: 11, marginTop: 2 }}>
           Al continuar aceptas nuestros <span style={{ color: T.gold }}>Términos y Condiciones</span>
         </div>
+        <div style={{ textAlign: "center", color: T.greyL, fontSize: 10, marginTop: 4 }}>v0.2</div>
       </div>
     </div>
   );
@@ -739,10 +748,10 @@ function PedidosScreen({ cart, user, onUpdate, onPlaceOrder, orders, onUpdateUse
   const doOrder = () => {
     if (cart.length === 0) return;
     if (pay === "Efectivo") {
-      onPlaceOrder(pay, addr, notes, name, true); // acumula puntos inmediato
+      onPlaceOrder(pay, addr, notes, name, true);
       setStep("confirmed_cash");
     } else {
-      // Yape o Contra entrega: abre WA, espera confirmación admin
+      // Build WA order message with all details
       const lines = cart.map(i=>`  • ${i.qty}x ${i.name} — S/ ${(i.price*i.qty).toFixed(2)}`).join("\n");
       const waMsg = encodeURIComponent(
 `🔥 *CHINO BROASTER — NUEVO PEDIDO*
@@ -758,13 +767,8 @@ ${lines}
 ⭐ *Puntos que ganará:* +${pts} pts
 ${notes?`\n📝 *Notas:* ${notes}`:""}
 
-_Enviado desde Chino Broaster App_`);
-      if (pay === "Yape") {
-        const payMsg = encodeURIComponent("Una vez realizado el pago al número 969179450 a nombre de Brandon Tarazona Nieto, envíe la captura del comprobante para confirmar el pago.");
-        window.open(`https://wa.me/${WA_NUMBER}?text=${payMsg}`, "_blank");
-      } else {
-        window.open(`https://wa.me/${WA_NUMBER}?text=${waMsg}`, "_blank");
-      }
+_Enviado desde Chino Broaster App v0.2_`);
+      window.open(`https://wa.me/${WA_NUMBER}?text=${waMsg}`, "_blank");
       onPlaceOrder(pay, addr, notes, name, false);
       setStep("waiting");
     }
@@ -1507,6 +1511,30 @@ function saveUsers(users) {
   try { localStorage.setItem("cb_users", JSON.stringify(users)); } catch {}
 }
 
+// ── Session persistence: guardar sesión por 2 horas ──────────────────────────
+const SESSION_KEY = "cb_session";
+const SESSION_TTL = 2 * 60 * 60 * 1000; // 2 horas
+
+function saveSession(user) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ user, ts: Date.now() })); } catch {}
+}
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const { user, ts } = JSON.parse(raw);
+    if (Date.now() - ts > SESSION_TTL) { localStorage.removeItem(SESSION_KEY); return null; }
+    const users = getUsers();
+    const fresh = users.find(u => u.celular === user.celular);
+    return fresh || user;
+  } catch { return null; }
+}
+
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch {}
+}
+
 // ════════════════════════════════════════════════════════════════════════════
 // LOGIN SCREEN
 // ════════════════════════════════════════════════════════════════════════════
@@ -1519,7 +1547,7 @@ function LoginScreen({ onBack, onSuccess }) {
     const cel = celular.replace(/\s/g,"");
     const users = getUsers();
     const found = users.find(u => u.celular.replace(/\s/g,"") === cel);
-    if (!found) { setError("Número no registrado"); return; }
+    if (!found) { setError("Número no registrado en este dispositivo. Si te registraste en otro celular, vuelve a registrarte aquí."); return; }
     if (found.contrasena !== pass) { setError("Contraseña incorrecta"); return; }
     setError("");
     onSuccess(found);
@@ -1560,9 +1588,7 @@ function LoginScreen({ onBack, onSuccess }) {
 // ROOT APP
 // ════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [mode, setMode]         = useState("app");   // "app" | "admin"
-  const [screen, setScreen]     = useState("splash"); // splash | login | register | app
-  const [tab, setTab]           = useState("home");
+  const [mode, setMode]           = useState("app");
   const [adminPass, setAdminPass] = useState("");
   const [adminError, setAdminError] = useState("");
   const [showAdminModal, setShowAdminModal] = useState(false);
@@ -1572,10 +1598,14 @@ export default function App() {
   const [promos, setPromos]       = useState(INITIAL_PROMOS);
   const [orders, setOrders]       = useState([]);
 
-  // Client state
-  const [user, setUser]   = useState(null);
+  // Client state — restore from session automatically
+  const [user, setUser]   = useState(() => loadSession());
   const [cart, setCart]   = useState([]);
   const [toast, setToast] = useState(null);
+
+  // Restore screen to "app" if session found
+  const [screen, setScreen] = useState(() => loadSession() ? "app" : "splash");
+  const [tab, setTab]       = useState("home");
 
   // Sync clients list for admin
   const [clients, setClients] = useState(() => getUsers());
@@ -1621,6 +1651,7 @@ export default function App() {
     if (givePointsNow) {
       const updatedUser = {...user, pts: user.pts + earned};
       setUser(updatedUser);
+      saveSession(updatedUser);
       const users = getUsers();
       const idx = users.findIndex(u => u.celular === user.celular);
       if (idx !== -1) { users[idx] = {...users[idx], pts: updatedUser.pts}; saveUsers(users); refreshClients(); }
@@ -1629,12 +1660,14 @@ export default function App() {
   }, [cart, orders, user]);
 
   const doLogin = (foundUser) => {
+    saveSession(foundUser);
     setUser(foundUser);
     setScreen("app");
     setTab("home");
   };
 
   const doLogout = () => {
+    clearSession();
     setUser(null);
     setScreen("splash");
     setCart([]);
@@ -1686,8 +1719,8 @@ export default function App() {
     }
   };
 
-  // Admin password modal
-  const AdminModal = () => (
+  // Admin password modal — defined outside render to avoid focus loss
+  const AdminModal = useCallback(() => (
     <div style={{ position:"fixed",inset:0,background:"rgba(0,0,0,.85)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:24 }}>
       <div style={{ background:T.surface,borderRadius:20,padding:24,width:"100%",maxWidth:340,border:`1px solid ${T.border}` }}>
         <div style={{ textAlign:"center",marginBottom:20 }}>
@@ -1695,9 +1728,17 @@ export default function App() {
           <div style={{ color:T.white,fontWeight:700,fontSize:16,marginTop:8 }}>Acceso Admin</div>
           <div style={{ color:T.grey,fontSize:12,marginTop:4 }}>Solo para el dueño del negocio</div>
         </div>
-        <input className="inp" type="password" placeholder="Contraseña del dueño" value={adminPass}
+        <input
+          className="inp"
+          type="password"
+          placeholder="Contraseña del dueño"
+          autoFocus
+          autoComplete="current-password"
+          value={adminPass}
           onChange={e=>{setAdminPass(e.target.value);setAdminError("");}}
-          onKeyDown={e=>e.key==="Enter"&&tryAdmin()} style={{ marginBottom:10 }} />
+          onKeyDown={e=>e.key==="Enter"&&tryAdmin()}
+          style={{ marginBottom:10 }}
+        />
         {adminError && <div style={{ color:"#F87171",fontSize:12,marginBottom:10 }}>⚠️ {adminError}</div>}
         <div style={{ display:"flex",gap:8 }}>
           <button onClick={()=>{setShowAdminModal(false);setAdminPass("");setAdminError("");}} className="btn-outline" style={{ flex:1 }}>Cancelar</button>
@@ -1705,7 +1746,7 @@ export default function App() {
         </div>
       </div>
     </div>
-  );
+  ), [adminPass, adminError]);
 
   const ClientApp = () => (
     <div className="shell">
